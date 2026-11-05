@@ -58,9 +58,21 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <junit.version>5.8.1</junit.version>
-        <kotlin.version>1.5.31</kotlin.version>
-        <kotest.version>4.6.3</kotest.version>
+        <junit.version>5.14.4</junit.version>
+        <junit.platform.version>1.14.4</junit.platform.version>
+        <kotlin.version>2.4.20</kotlin.version>
+        <jackson.version>2.21.5</jackson.version>
+        <kotest.version>5.9.1</kotest.version>
+        <mockk.version>1.14.11</mockk.version>
+        <prometheus.version>0.16.0</prometheus.version>
+        <dokka.version>2.2.0</dokka.version>
+        <jetty.version>12.0.35</jetty.version>
+        <jersey.version>3.1.11</jersey.version>
+        <jwt.version>0.12.6</jwt.version>
+        <bouncycastle.version>1.83</bouncycastle.version>
+        <smack.version>4.4.8-jitsi-4</smack.version>
+        <opentelemetry.version>1.66.0</opentelemetry.version>
+        <ktlint.version>1.8.0</ktlint.version>
     </properties>
 
     <dependencyManagement>
@@ -68,75 +80,111 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>jitsi-utils</artifactId>
-                <version>1.0-114-g43815ed</version>
+                <version>1.0-153-gd5c0102</version>
             </dependency>
             <dependency>
                 <groupId>org.jetbrains.kotlin</groupId>
-                <artifactId>kotlin-stdlib-jdk8</artifactId>
+                <artifactId>kotlin-stdlib</artifactId>
                 <version>${kotlin.version}</version>
+            </dependency>
+            <!--
+             Pin all Jetty artifacts (transitive dependencies of Jersey, etc.)
+             to ${jetty.version}.  Without this, Jersey's POM has JDK-activated
+             profiles that can swap in a Jetty 11.x version when Maven is run
+             under JDK < 17.
+            -->
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-bom</artifactId>
+                <version>${jetty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.ee10</groupId>
+                <artifactId>jetty-ee10-bom</artifactId>
+                <version>${jetty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
 
     <build>
-        <pluginManagement>
-            <plugins>
-                <!--
-                 Dokka is not added as plugin for all projects because it randomly fails
-                 for jicoco, see also https://github.com/Kotlin/dokka/issues/1599
-                -->
-                <plugin>
-                    <groupId>org.jetbrains.dokka</groupId>
-                    <artifactId>dokka-maven-plugin</artifactId>
-                    <version>${kotlin.version}</version>
-                    <executions>
-                        <execution>
-                            <phase>package</phase>
-                            <goals>
-                                <goal>javadocJar</goal>
-                            </goals>
-                        </execution>
-                    </executions>
-                </plugin>
-            </plugins>
-        </pluginManagement>
-
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
+                <version>3.0.0-M6</version>
                 <configuration>
                     <systemPropertyVariables>
                         <jersey.config.test.container.port>0</jersey.config.test.container.port>
+                        <kotest.framework.classpath.scanning.autoscan.disable>true</kotest.framework.classpath.scanning.autoscan.disable>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
+            <!-- ktlint: check runs in the verify phase; auto-format with "mvn exec:exec@ktlint-format" -->
             <plugin>
-                <groupId>com.github.gantsign.maven</groupId>
-                <artifactId>ktlint-maven-plugin</artifactId>
-                <version>1.11.0</version>
-                <configuration>
-                    <sourceRoots>
-                        <sourceRoot>${project.basedir}/src/main/kotlin</sourceRoot>
-                    </sourceRoots>
-                    <testSourceRoots>
-                        <testSourceRoot>${project.basedir}/src/test/kotlin</testSourceRoot>
-                    </testSourceRoots>
-                </configuration>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.6.3</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.pinterest.ktlint</groupId>
+                        <artifactId>ktlint-cli</artifactId>
+                        <version>${ktlint.version}</version>
+                        <classifier>all</classifier>
+                    </dependency>
+                </dependencies>
                 <executions>
                     <execution>
-                        <id>check</id>
+                        <id>ktlint-check</id>
+                        <phase>verify</phase>
                         <goals>
-                            <goal>check</goal>
+                            <goal>exec</goal>
                         </goals>
+                        <configuration>
+                            <executable>java</executable>
+                            <includePluginDependencies>true</includePluginDependencies>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath>
+                                    <dependency>com.pinterest.ktlint:ktlint-cli</dependency>
+                                </classpath>
+                                <argument>com.pinterest.ktlint.Main</argument>
+                                <argument>--relative</argument>
+                                <argument>src/main/kotlin/**/*.kt</argument>
+                                <argument>src/test/kotlin/**/*.kt</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>ktlint-format</id>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>java</executable>
+                            <includePluginDependencies>true</includePluginDependencies>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath>
+                                    <dependency>com.pinterest.ktlint:ktlint-cli</dependency>
+                                </classpath>
+                                <argument>com.pinterest.ktlint.Main</argument>
+                                <argument>--format</argument>
+                                <argument>--relative</argument>
+                                <argument>src/main/kotlin/**/*.kt</argument>
+                                <argument>src/test/kotlin/**/*.kt</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
             <plugin>
                 <groupId>biz.aQute.bnd</groupId>
                 <artifactId>bnd-maven-plugin</artifactId>
-                <version>6.0.0</version>
+                <version>6.2.0</version>
                 <executions>
                     <execution>
                         <goals>
@@ -148,7 +196,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.2.0</version>
+                <version>3.2.2</version>
                 <configuration>
                     <archive>
                         <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
@@ -158,7 +206,31 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-deploy-plugin</artifactId>
-                <version>2.8.2</version>
+                <version>3.0.0-M2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.jetbrains.dokka</groupId>
+                <artifactId>dokka-maven-plugin</artifactId>
+                <version>${dokka.version}</version>
+                <executions>
+                    <execution>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>dokka</goal>
+                            <goal>javadoc</goal>
+                            <goal>javadocJar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <dokkaPlugins>
+                        <plugin>
+                            <groupId>org.jetbrains.dokka</groupId>
+                            <artifactId>kotlin-as-java-plugin</artifactId>
+                            <version>${dokka.version}</version>
+                        </plugin>
+                    </dokkaPlugins>
+                </configuration>
             </plugin>
         </plugins>
     </build>
@@ -188,6 +260,12 @@
 
             <modules>
                 <module>jicoco-config</module>
+                <module>jicoco-health-checker</module>
+                <module>jicoco-jetty</module>
+                <module>jicoco-jwt</module>
+                <module>jicoco-mediajson</module>
+                <module>jicoco-metrics</module>
+                <module>jicoco-tracing</module>
                 <module>jicoco-test-kotlin</module>
             </modules>
 
@@ -196,11 +274,11 @@
                     <plugin>
                         <groupId>org.sonatype.plugins</groupId>
                         <artifactId>nexus-staging-maven-plugin</artifactId>
-                        <version>1.6.8</version>
+                        <version>1.6.13</version>
                         <extensions>true</extensions>
                         <configuration>
                             <serverId>ossrh</serverId>
-                            <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                            <nexusUrl>https://ossrh-staging-api.central.sonatype.com/</nexusUrl>
                             <autoReleaseAfterClose>true</autoReleaseAfterClose>
                         </configuration>
                     </plugin>
@@ -219,9 +297,7 @@
             </activation>
 
             <modules>
-                <module>jicoco</module>
-                <module>jicoco-config</module>
-                <module>jicoco-test-kotlin</module>
+                <module>jicoco-mucclient</module>
             </modules>
 
             <repositories>
@@ -262,7 +338,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
-                        <version>3.2.0</version>
+                        <version>3.3.0</version>
                         <executions>
                             <execution>
                                 <phase>generate-sources</phase>
@@ -341,7 +417,7 @@
                     <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
-                        <version>0.8.7</version>
+                        <version>0.8.14</version>
                         <executions>
                             <execution>
                                 <goals>
@@ -357,6 +433,11 @@
                                 </goals>
                             </execution>
                         </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.jetbrains.dokka</groupId>
+                        <artifactId>dokka-maven-plugin</artifactId>
+                        <version>${dokka.version}</version>
                     </plugin>
                 </plugins>
             </build>
